@@ -1,12 +1,17 @@
 {
+  "name": "reviews-service",
+  "version": "1.0.0",
+  "description": "",
+  "main": "src/index.js",
+  "type": "commonjs",
   "scripts": {
     "dev": "nodemon src/index.js",
     "start": "node src/index.js",
-    "prestart": "sequelize db:migrate",
     "db:migrate": "sequelize db:migrate",
     "db:migrate:undo": "sequelize db:migrate:undo"
   },
   "dependencies": {
+    "compression": "^1.8.1",
     "cors": "^2.8.5",
     "dayjs": "^1.11.18",
     "dotenv": "^17.2.2",
