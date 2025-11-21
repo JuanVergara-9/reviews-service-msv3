@@ -1,4 +1,4 @@
-const router=require('express').Router();
+const router = require('express').Router();
 const { requireAuth } = require('../middlewares/auth.middleware');
 const ctrl = require('../controllers/reviews.controller');
 const photosCtrl = require('../controllers/reviews-photos.controller');
@@ -25,5 +25,8 @@ router.post('/reviews/photos', requireAuth, uploadMultipleImages.array('files', 
 router.put('/reviews/:id/photos', requireAuth, ctrl.updatePhotos);
 router.get('/providers/:id/reviews', ctrl.listProvider);
 router.get('/providers/:id/review-summary', ctrl.summary);
+router.get('/reviews/stats/summary', ctrl.globalSummary);
+router.get('/reviews/recent', ctrl.recentReviews);
 
 module.exports = router;
+

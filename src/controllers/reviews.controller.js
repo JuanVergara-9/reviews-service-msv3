@@ -8,33 +8,33 @@ const createSchema = z.object({
   photos: z.array(z.string().url()).max(6).optional() // opcional
 }).strict();
 
-async function create(req,res,next){
-  try{
+async function create(req, res, next) {
+  try {
     const data = createSchema.parse(req.body);
     const r = await svc.createReview(req.user.userId, data, req);
     res.status(201).json({ review: r });
-  } catch(e){ next(e); }
+  } catch (e) { next(e); }
 }
 
-async function listProvider(req,res,next){
-  try{
+async function listProvider(req, res, next) {
+  try {
     const providerId = Number(req.params.id);
     console.log(`[listProvider] Request for providerId: ${providerId}, query:`, req.query);
     const { count, rows } = await svc.listProviderReviews(providerId, { limit: req.query.limit, offset: req.query.offset });
     console.log(`[listProvider] Found ${count} reviews, returning ${rows.length} items`);
     res.json({ count, items: rows });
-  } catch(e){ 
+  } catch (e) {
     console.error(`[listProvider] Error:`, e);
-    next(e); 
+    next(e);
   }
 }
 
-async function summary(req,res,next){
-  try{
+async function summary(req, res, next) {
+  try {
     const providerId = Number(req.params.id);
     const s = await svc.providerReviewSummary(providerId);
     res.json({ summary: s });
-  } catch(e){ next(e); }
+  } catch (e) { next(e); }
 }
 
 const updatePhotosSchema = z.object({
@@ -49,7 +49,23 @@ async function updatePhotos(req, res, next) {
     const data = updatePhotosSchema.parse(req.body);
     const r = await svc.updateReviewPhotos(reviewId, userId, userRole, data.photos);
     res.status(200).json({ review: r });
-  } catch(e) { next(e); }
+  } catch (e) { next(e); }
 }
 
-module.exports = { create, listProvider, summary, updatePhotos };
+async function globalSummary(req, res, next) {
+  try {
+    const s = await svc.globalReviewSummary();
+    res.json({ summary: s });
+  } catch (e) { next(e); }
+}
+
+async function recentReviews(req, res, next) {
+  try {
+    const limit = req.query.limit ? Number(req.query.limit) : 3;
+    const reviews = await svc.getRecentReviews(limit);
+    res.json({ reviews });
+  } catch (e) { next(e); }
+}
+
+module.exports = { create, listProvider, summary, updatePhotos, globalSummary, recentReviews };
+
