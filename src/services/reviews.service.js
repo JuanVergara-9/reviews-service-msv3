@@ -124,6 +124,8 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
         r.updated_at,
         COALESCE(
           NULLIF(TRIM(COALESCE(up.first_name, '') || ' ' || COALESCE(up.last_name, '')), ''),
+          NULLIF(TRIM(COALESCE(up.first_name, '')), ''),
+          NULLIF(TRIM(COALESCE(up.last_name, '')), ''),
           'Usuario'
         ) as user_name,
         up.avatar_url as user_avatar
@@ -225,14 +227,20 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
     }
 
     // Si user_name está vacío o es 'Usuario', intentar obtener desde user-service
-    if (!data.user_name || data.user_name.trim() === '' || data.user_name === 'Usuario') {
+    // También verificar si el nombre es solo espacios en blanco
+    const trimmedName = (data.user_name || '').trim();
+    if (!trimmedName || trimmedName === '' || trimmedName === 'Usuario') {
       const userData = await getUserDataFromService(data.user_id);
-      if (userData) {
-        data.user_name = userData.user_name;
+      if (userData && userData.user_name && userData.user_name.trim() !== '' && userData.user_name.trim() !== 'Usuario') {
+        data.user_name = userData.user_name.trim();
         data.user_avatar = userData.user_avatar;
-      } else {
+      } else if (!trimmedName || trimmedName === '') {
+        // Solo establecer 'Usuario' si realmente no hay nombre
         data.user_name = 'Usuario';
       }
+    } else {
+      // Asegurar que el nombre esté recortado
+      data.user_name = trimmedName;
     }
 
     // Asegurar que created_at esté en formato ISO string
