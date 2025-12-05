@@ -36,26 +36,9 @@ async function createReview(userId, payload, req) {
   // Obtener información del usuario
   const sequelize = Review.sequelize;
   
-  // Verificar si la tabla user_profiles existe
-  let hasUserProfilesTable = false;
-  try {
-    const checkTableQuery = `
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'user_profiles'
-      );
-    `;
-    const [tableCheck] = await sequelize.query(checkTableQuery, { type: QueryTypes.SELECT });
-    hasUserProfilesTable = tableCheck?.exists === true;
-  } catch (err) {
-    console.warn(`[createReview] Error checking for user_profiles table:`, err.message);
-    hasUserProfilesTable = false;
-  }
-
+  // Intentar obtener información del usuario desde user_profiles directamente
   let userInfo = null;
-  
-  if (hasUserProfilesTable) {
+  try {
     const userQuery = `
       SELECT 
         COALESCE(
@@ -76,13 +59,20 @@ async function createReview(userId, payload, req) {
     });
 
     userInfo = Array.isArray(userRows) && userRows.length > 0 ? userRows[0] : null;
+  } catch (err) {
+    console.warn(`[createReview] Error querying user_profiles table:`, err.message);
+    userInfo = null;
   }
 
   // Función helper para obtener datos de usuario desde user-service si user_profiles está vacío
   async function getUserDataFromService(userId) {
     try {
+      // Intentar usar el gateway primero si está disponible, sino el servicio directo
+      const gatewayUrl = process.env.GATEWAY_URL || process.env.API_GATEWAY_URL || 'http://localhost:4000';
       const userServiceUrl = process.env.USER_SERVICE_URL || 'http://localhost:4002';
-      const response = await fetch(`${userServiceUrl}/api/v1/users/${userId}`, {
+      const baseUrl = gatewayUrl.includes('4000') ? `${gatewayUrl}/api/v1/users` : `${userServiceUrl}/api/v1/users`;
+      
+      const response = await fetch(`${baseUrl}/${userId}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(3000) // Timeout de 3 segundos
@@ -250,8 +240,12 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
   // Función helper para obtener datos de usuario desde user-service si user_profiles está vacío
   async function getUserDataFromService(userId) {
     try {
+      // Intentar usar el gateway primero si está disponible, sino el servicio directo
+      const gatewayUrl = process.env.GATEWAY_URL || process.env.API_GATEWAY_URL || 'http://localhost:4000';
       const userServiceUrl = process.env.USER_SERVICE_URL || 'http://localhost:4002';
-      const response = await fetch(`${userServiceUrl}/api/v1/users/${userId}`, {
+      const baseUrl = gatewayUrl.includes('4000') ? `${gatewayUrl}/api/v1/users` : `${userServiceUrl}/api/v1/users`;
+      
+      const response = await fetch(`${baseUrl}/${userId}`, {
         method: 'GET',
         headers: { 'Content-Type': 'application/json' },
         signal: AbortSignal.timeout(3000) // Timeout de 3 segundos
