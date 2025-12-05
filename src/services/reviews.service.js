@@ -148,8 +148,8 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
 
   console.log(`[listProviderReviews] Querying reviews for providerId: ${providerId}, limit: ${limitNum}, offset: ${offsetNum}`);
 
-  // Intentar consulta con JOIN a user_profiles directamente (están en la misma BD)
-  // LEFT JOIN siempre funciona, incluso si la tabla no existe (solo devuelve NULL)
+  // Consulta básica sin JOIN (siempre funciona)
+  // Luego intentaremos obtener los nombres desde user_profiles o user-service
   const query = `
     SELECT 
       r.id,
@@ -159,16 +159,8 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
       r.comment,
       r.photos,
       r.created_at,
-      r.updated_at,
-      COALESCE(
-        NULLIF(TRIM(COALESCE(up.first_name, '') || ' ' || COALESCE(up.last_name, '')), ''),
-        NULLIF(TRIM(COALESCE(up.first_name, '')), ''),
-        NULLIF(TRIM(COALESCE(up.last_name, '')), ''),
-        'Usuario'
-      ) as user_name,
-      up.avatar_url as user_avatar
+      r.updated_at
     FROM reviews r
-    LEFT JOIN user_profiles up ON r.user_id = up.user_id
     WHERE r.provider_id = :providerId
     ORDER BY r.created_at DESC
     LIMIT :limit OFFSET :offset
@@ -229,6 +221,35 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
     return null;
   }
 
+  // Función helper para obtener datos de usuario desde user_profiles si existe
+  async function getUserDataFromProfiles(userId) {
+    try {
+      const userQuery = `
+        SELECT 
+          COALESCE(
+            NULLIF(TRIM(COALESCE(up.first_name, '') || ' ' || COALESCE(up.last_name, '')), ''),
+            NULLIF(TRIM(COALESCE(up.first_name, '')), ''),
+            NULLIF(TRIM(COALESCE(up.last_name, '')), ''),
+            'Usuario'
+          ) as user_name,
+          up.avatar_url as user_avatar
+        FROM user_profiles up
+        WHERE up.user_id = :userId
+        LIMIT 1
+      `;
+      const userRows = await sequelize.query(userQuery, {
+        replacements: { userId },
+        type: QueryTypes.SELECT
+      });
+      if (Array.isArray(userRows) && userRows.length > 0) {
+        return userRows[0];
+      }
+    } catch (err) {
+      // La tabla no existe o hay un error, ignorar
+    }
+    return null;
+  }
+
   // Normalizar photos a array y formatear datos, y obtener datos de usuarios si faltan
   const normalizedRows = await Promise.all(rows.map(async (row) => {
     const data = { ...row };
@@ -248,22 +269,23 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
       data.photos = [];
     }
 
-    // Si user_name está vacío o es 'Usuario', intentar obtener desde user-service
-    // También verificar si el nombre es solo espacios en blanco
-    const trimmedName = (data.user_name || '').trim();
-    if (!trimmedName || trimmedName === '' || trimmedName === 'Usuario') {
+    // Intentar obtener nombre del usuario desde user_profiles primero
+    let userInfo = await getUserDataFromProfiles(data.user_id);
+    
+    // Si no se encontró en user_profiles, intentar desde user-service
+    if (!userInfo || !userInfo.user_name || userInfo.user_name === 'Usuario') {
       const userData = await getUserDataFromService(data.user_id);
       if (userData && userData.user_name && userData.user_name.trim() !== '' && userData.user_name.trim() !== 'Usuario') {
-        data.user_name = userData.user_name.trim();
-        data.user_avatar = userData.user_avatar;
-      } else if (!trimmedName || trimmedName === '') {
-        // Solo establecer 'Usuario' si realmente no hay nombre
-        data.user_name = 'Usuario';
+        userInfo = {
+          user_name: userData.user_name.trim(),
+          user_avatar: userData.user_avatar
+        };
       }
-    } else {
-      // Asegurar que el nombre esté recortado
-      data.user_name = trimmedName;
     }
+
+    // Asignar nombre y avatar
+    data.user_name = userInfo?.user_name || 'Usuario';
+    data.user_avatar = userInfo?.user_avatar || null;
 
     // Asegurar que created_at esté en formato ISO string
     if (data.created_at) {
