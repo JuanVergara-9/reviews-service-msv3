@@ -35,24 +35,91 @@ async function createReview(userId, payload, req) {
 
   // Obtener información del usuario
   const sequelize = Review.sequelize;
-  const userQuery = `
-    SELECT 
-      COALESCE(
-        NULLIF(TRIM(COALESCE(up.first_name, '') || ' ' || COALESCE(up.last_name, '')), ''),
-        'Usuario'
-      ) as user_name,
-      up.avatar_url as user_avatar
-    FROM user_profiles up
-    WHERE up.user_id = :userId
-    LIMIT 1
-  `;
+  
+  // Verificar si la tabla user_profiles existe
+  let hasUserProfilesTable = false;
+  try {
+    const checkTableQuery = `
+      SELECT EXISTS (
+        SELECT FROM information_schema.tables 
+        WHERE table_schema = 'public' 
+        AND table_name = 'user_profiles'
+      );
+    `;
+    const [tableCheck] = await sequelize.query(checkTableQuery, { type: QueryTypes.SELECT });
+    hasUserProfilesTable = tableCheck?.exists === true;
+  } catch (err) {
+    console.warn(`[createReview] Error checking for user_profiles table:`, err.message);
+    hasUserProfilesTable = false;
+  }
 
-  const userRows = await sequelize.query(userQuery, {
-    replacements: { userId },
-    type: QueryTypes.SELECT
-  });
+  let userInfo = null;
+  
+  if (hasUserProfilesTable) {
+    const userQuery = `
+      SELECT 
+        COALESCE(
+          NULLIF(TRIM(COALESCE(up.first_name, '') || ' ' || COALESCE(up.last_name, '')), ''),
+          NULLIF(TRIM(COALESCE(up.first_name, '')), ''),
+          NULLIF(TRIM(COALESCE(up.last_name, '')), ''),
+          'Usuario'
+        ) as user_name,
+        up.avatar_url as user_avatar
+      FROM user_profiles up
+      WHERE up.user_id = :userId
+      LIMIT 1
+    `;
 
-  const userInfo = Array.isArray(userRows) && userRows.length > 0 ? userRows[0] : null;
+    const userRows = await sequelize.query(userQuery, {
+      replacements: { userId },
+      type: QueryTypes.SELECT
+    });
+
+    userInfo = Array.isArray(userRows) && userRows.length > 0 ? userRows[0] : null;
+  }
+
+  // Función helper para obtener datos de usuario desde user-service si user_profiles está vacío
+  async function getUserDataFromService(userId) {
+    try {
+      const userServiceUrl = process.env.USER_SERVICE_URL || 'http://localhost:4002';
+      const response = await fetch(`${userServiceUrl}/api/v1/users/${userId}`, {
+        method: 'GET',
+        headers: { 'Content-Type': 'application/json' },
+        signal: AbortSignal.timeout(3000) // Timeout de 3 segundos
+      });
+
+      if (response.ok) {
+        const userData = await response.json();
+        const profile = userData.profile || userData;
+        const firstName = profile.first_name || '';
+        const lastName = profile.last_name || '';
+        const fullName = `${firstName} ${lastName}`.trim();
+        return {
+          user_name: fullName || 'Usuario',
+          user_avatar: profile.avatar_url || null
+        };
+      }
+    } catch (err) {
+      console.warn(`[createReview] Error fetching user data from user-service for userId ${userId}:`, err.message);
+    }
+    return null;
+  }
+
+  // Si user_name está vacío o es 'Usuario', intentar obtener desde user-service
+  const trimmedName = (userInfo?.user_name || '').trim();
+  if (!trimmedName || trimmedName === '' || trimmedName === 'Usuario') {
+    const userData = await getUserDataFromService(userId);
+    if (userData && userData.user_name && userData.user_name.trim() !== '' && userData.user_name.trim() !== 'Usuario') {
+      userInfo = {
+        user_name: userData.user_name.trim(),
+        user_avatar: userData.user_avatar
+      };
+    } else if (!userInfo) {
+      userInfo = { user_name: 'Usuario', user_avatar: null };
+    }
+  } else if (userInfo) {
+    userInfo.user_name = trimmedName;
+  }
 
   // Normalizar photos en la respuesta
   const data = r.toJSON ? r.toJSON() : r;
