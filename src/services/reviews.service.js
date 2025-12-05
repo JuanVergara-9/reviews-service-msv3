@@ -148,70 +148,31 @@ async function listProviderReviews(providerId, { limit = 20, offset = 0 }) {
 
   console.log(`[listProviderReviews] Querying reviews for providerId: ${providerId}, limit: ${limitNum}, offset: ${offsetNum}`);
 
-  // Primero verificar si la tabla user_profiles existe
-  let hasUserProfilesTable = false;
-  try {
-    const checkTableQuery = `
-      SELECT EXISTS (
-        SELECT FROM information_schema.tables 
-        WHERE table_schema = 'public' 
-        AND table_name = 'user_profiles'
-      );
-    `;
-    const [tableCheck] = await sequelize.query(checkTableQuery, { type: QueryTypes.SELECT });
-    hasUserProfilesTable = tableCheck?.exists === true;
-    console.log(`[listProviderReviews] user_profiles table exists: ${hasUserProfilesTable}`);
-  } catch (err) {
-    console.warn(`[listProviderReviews] Error checking for user_profiles table:`, err.message);
-    hasUserProfilesTable = false;
-  }
-
-  // Consulta con JOIN a user_profiles solo si la tabla existe
-  let query;
-  if (hasUserProfilesTable) {
-    query = `
-      SELECT 
-        r.id,
-        r.user_id,
-        r.provider_id,
-        r.rating,
-        r.comment,
-        r.photos,
-        r.created_at,
-        r.updated_at,
-        COALESCE(
-          NULLIF(TRIM(COALESCE(up.first_name, '') || ' ' || COALESCE(up.last_name, '')), ''),
-          NULLIF(TRIM(COALESCE(up.first_name, '')), ''),
-          NULLIF(TRIM(COALESCE(up.last_name, '')), ''),
-          'Usuario'
-        ) as user_name,
-        up.avatar_url as user_avatar
-      FROM reviews r
-      LEFT JOIN user_profiles up ON r.user_id = up.user_id
-      WHERE r.provider_id = :providerId
-      ORDER BY r.created_at DESC
-      LIMIT :limit OFFSET :offset
-    `;
-  } else {
-    // Consulta sin JOIN si la tabla no existe
-    query = `
-      SELECT 
-        r.id,
-        r.user_id,
-        r.provider_id,
-        r.rating,
-        r.comment,
-        r.photos,
-        r.created_at,
-        r.updated_at,
-        'Usuario' as user_name,
-        NULL as user_avatar
-      FROM reviews r
-      WHERE r.provider_id = :providerId
-      ORDER BY r.created_at DESC
-      LIMIT :limit OFFSET :offset
-    `;
-  }
+  // Intentar consulta con JOIN a user_profiles directamente (están en la misma BD)
+  // LEFT JOIN siempre funciona, incluso si la tabla no existe (solo devuelve NULL)
+  const query = `
+    SELECT 
+      r.id,
+      r.user_id,
+      r.provider_id,
+      r.rating,
+      r.comment,
+      r.photos,
+      r.created_at,
+      r.updated_at,
+      COALESCE(
+        NULLIF(TRIM(COALESCE(up.first_name, '') || ' ' || COALESCE(up.last_name, '')), ''),
+        NULLIF(TRIM(COALESCE(up.first_name, '')), ''),
+        NULLIF(TRIM(COALESCE(up.last_name, '')), ''),
+        'Usuario'
+      ) as user_name,
+      up.avatar_url as user_avatar
+    FROM reviews r
+    LEFT JOIN user_profiles up ON r.user_id = up.user_id
+    WHERE r.provider_id = :providerId
+    ORDER BY r.created_at DESC
+    LIMIT :limit OFFSET :offset
+  `;
 
   const countQuery = `
     SELECT COUNT(*) as count
