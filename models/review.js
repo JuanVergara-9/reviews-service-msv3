@@ -5,6 +5,9 @@ module.exports = (sequelize, DataTypes) => {
     user_id: { type: DataTypes.INTEGER, allowNull: false },
     provider_id: { type: DataTypes.INTEGER, allowNull: false },
     rating: { type: DataTypes.SMALLINT, allowNull: false },
+    // AGREGA ESTOS DOS:
+    user_name: { type: DataTypes.STRING },
+    user_avatar: { type: DataTypes.STRING },
     comment: DataTypes.TEXT,
     photos: { type: DataTypes.JSONB, defaultValue: [] },
     verified: { type: DataTypes.BOOLEAN, defaultValue: false },
