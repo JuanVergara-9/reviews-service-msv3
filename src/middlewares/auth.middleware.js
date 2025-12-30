@@ -7,7 +7,7 @@ function requireAuth(req,_res,next){
   if(!token) return next(unauthorized('AUTH.MISSING_TOKEN','Token requerido'));
   try{
     const p = verifyAccessToken(token);
-    req.user = { userId: p.userId, role: p.role };
+    req.user = { id: p.userId, userId: p.userId, role: p.role };
     next();
   } catch(e){
     const msg = /expired/i.test(e.message) ? 'Token expirado' : 'Token inválido';
