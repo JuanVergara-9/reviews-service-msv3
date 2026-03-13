@@ -38,46 +38,54 @@ async function getUserDataFromService(userId, token = null) {
   return null;
 }
 
-// ✅ B. Función createReview modificada para obtener y guardar datos
+// ✅ B. Función createReview modificada para obtener y guardar datos (web y whatsapp)
 async function createReview(userId, payload, req) {
-  const { providerId, rating, comment, photos } = payload;
+  const { providerId, rating, comment, photos, source = 'web', ticketId } = payload;
+  const isWhatsApp = source === 'whatsapp';
 
   if (rating < 1 || rating > 5) throw badRequest('REVIEW.BAD_RATING', 'Rating 1..5');
 
-  // 1) anti-spam: debe existir contact_intent en 30 días
-  const requireContactIntent = String(process.env.REVIEWS_REQUIRE_CONTACT_INTENT || 'true').toLowerCase() === 'true';
-  if (requireContactIntent) {
-    const hasContact = await existsRecentContact(userId, providerId, 30);
-    if (!hasContact) throw forbidden('REVIEW.NO_CONTACT_INTENT', 'Necesitás haber contactado al proveedor (últimos 30 días)');
+  if (!isWhatsApp) {
+    // 1) anti-spam: debe existir contact_intent en 30 días (solo web)
+    const requireContactIntent = String(process.env.REVIEWS_REQUIRE_CONTACT_INTENT || 'true').toLowerCase() === 'true';
+    if (requireContactIntent && userId) {
+      const hasContact = await existsRecentContact(userId, providerId, 30);
+      if (!hasContact) throw forbidden('REVIEW.NO_CONTACT_INTENT', 'Necesitás haber contactado al proveedor (últimos 30 días)');
+    }
+
+    // 2) 1 reseña por user↔provider cada 30 días (solo web)
+    const since = dayjs().subtract(30, 'day').toDate();
+    const exists = await Review.count({ where: { user_id: userId, provider_id: providerId, created_at: { [Op.gte]: since } } });
+    if (exists > 0) throw conflict('REVIEW.WINDOW_LIMIT', 'Ya publicaste una reseña reciente para este proveedor');
+  } else if (ticketId != null) {
+    // WhatsApp: una sola reseña por ticket
+    const existingByTicket = await Review.count({ where: { ticket_id: ticketId } });
+    if (existingByTicket > 0) throw conflict('REVIEW.TICKET_ALREADY_REVIEWED', 'Este ticket ya tiene una reseña registrada');
   }
 
-  // 2) 1 reseña por user↔provider cada 30 días
-  const since = dayjs().subtract(30, 'day').toDate();
-  const exists = await Review.count({ where: { user_id: userId, provider_id: providerId, created_at: { [Op.gte]: since } } });
-  if (exists > 0) throw conflict('REVIEW.WINDOW_LIMIT', 'Ya publicaste una reseña reciente para este proveedor');
-
-  // ✅ 1. Obtener el token de la petición actual
-  const token = req.headers.authorization;
-
-  // ✅ 2. Intentar obtener datos del usuario USANDO EL TOKEN
   let userInfo = { user_name: 'Usuario', user_avatar: null };
-  
-  const fetchedUser = await getUserDataFromService(userId, token);
-  if (fetchedUser) {
-    userInfo = fetchedUser;
+  if (isWhatsApp) {
+    userInfo = { user_name: 'Cliente WhatsApp', user_avatar: null };
+  } else {
+    const token = req && req.headers && req.headers.authorization;
+    const fetchedUser = await getUserDataFromService(userId, token);
+    if (fetchedUser) userInfo = fetchedUser;
   }
 
-  // ✅ 3. Crear la reseña guardando también el nombre y avatar
+  const finalComment = isWhatsApp
+    ? 'Reseña verificada capturada automáticamente tras finalizar el trabajo por WhatsApp.'
+    : (comment || null);
+
   const r = await Review.create({
-    user_id: userId,
+    user_id: isWhatsApp ? null : userId,
     provider_id: providerId,
     rating,
-    comment,
+    comment: finalComment,
     photos: Array.isArray(photos) ? photos : [],
-    ip: clientIp(req),
-    user_agent: req.headers['user-agent'] || null,
-    
-    // ✅ Guardamos los datos desnormalizados:
+    ip: req ? clientIp(req) : null,
+    user_agent: req && req.headers ? req.headers['user-agent'] || null : null,
+    source: source || 'web',
+    ticket_id: ticketId ?? null,
     user_name: userInfo.user_name,
     user_avatar: userInfo.user_avatar
   });

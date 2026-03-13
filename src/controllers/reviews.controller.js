@@ -5,13 +5,20 @@ const createSchema = z.object({
   providerId: z.number().int(),
   rating: z.number().int().min(1).max(5),
   comment: z.string().max(2000).optional(),
-  photos: z.array(z.string().url()).max(6).optional() // opcional
+  photos: z.array(z.string().url()).max(6).optional(),
+  source: z.enum(['web', 'whatsapp']).optional().default('web'),
+  ticketId: z.number().int().optional()
 }).strict();
 
 async function create(req, res, next) {
   try {
     const data = createSchema.parse(req.body);
-    const r = await svc.createReview(req.user.userId, data, req);
+    const isWhatsApp = data.source === 'whatsapp';
+    const userId = isWhatsApp ? null : (req.user?.userId ?? null);
+    if (!isWhatsApp && userId == null) {
+      return res.status(401).json({ error: { code: 'REVIEW.UNAUTHORIZED', message: 'Token requerido para reseñas web' } });
+    }
+    const r = await svc.createReview(userId, data, req);
     res.status(201).json({ review: r });
   } catch (e) { next(e); }
 }
