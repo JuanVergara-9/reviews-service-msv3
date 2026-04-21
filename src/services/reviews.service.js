@@ -256,19 +256,32 @@ async function updateReviewPhotos(reviewId, userId, userRole, newPhotos) {
 
 async function providerReviewSummary(providerId) {
   const since90 = dayjs().subtract(90, 'day').toDate();
-  const [row] = await Review.findAll({
-    where: { provider_id: providerId, created_at: { [Op.gte]: since90 } },
-    attributes: [
-      [fn('COUNT', col('id')), 'count'],
-      [fn('AVG', col('rating')), 'avg'],
-      [fn('SUM', literal("CASE WHEN jsonb_array_length(photos) > 0 THEN 1 ELSE 0 END")), 'withPhotos']
-    ],
-    raw: true
-  });
+
+  const commonAttrs = [
+    [fn('COUNT', col('id')), 'count'],
+    [fn('AVG', col('rating')), 'avg'],
+    [fn('SUM', literal("CASE WHEN jsonb_array_length(photos) > 0 THEN 1 ELSE 0 END")), 'withPhotos']
+  ];
+
+  const [allTime, recent] = await Promise.all([
+    Review.findAll({
+      where: { provider_id: providerId },
+      attributes: commonAttrs,
+      raw: true
+    }).then(([r]) => r),
+    Review.findAll({
+      where: { provider_id: providerId, created_at: { [Op.gte]: since90 } },
+      attributes: commonAttrs,
+      raw: true
+    }).then(([r]) => r),
+  ]);
+
   return {
-    count: Number(row?.count || 0),
-    avgRating: row?.avg ? Number(parseFloat(row.avg).toFixed(1)) : 0,
-    photosRate: row?.count ? Number(((Number(row.withPhotos || 0) / Number(row.count)) * 100).toFixed(0)) : 0
+    count: Number(allTime?.count || 0),
+    avgRating: allTime?.avg ? Number(parseFloat(allTime.avg).toFixed(1)) : 0,
+    photosRate: allTime?.count ? Number(((Number(allTime.withPhotos || 0) / Number(allTime.count)) * 100).toFixed(0)) : 0,
+    count90d: Number(recent?.count || 0),
+    avgRating90d: recent?.avg ? Number(parseFloat(recent.avg).toFixed(1)) : 0,
   };
 }
 
